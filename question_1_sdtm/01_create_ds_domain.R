@@ -21,6 +21,7 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(sdtm.oak)
   library(haven)
+  library(gt)
   library(tibble)
   library(labelled)
   library(pharmaverseraw)
@@ -233,4 +234,11 @@ ds <- ds %>%
   set_variable_labels(.labels = ds_labels)
 #create output 
 write_xpt(ds, "ds.xpt")
+
+
+#html output
+ds %>%
+  head(50) %>%
+  gt() %>%
+  gtsave("ds_listing.html")
 

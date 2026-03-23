@@ -113,6 +113,7 @@ ds <- sdtm.oak::assign_ct(
 
 # VISIT and VISITNUM: attempt controlled terminology mapping from INSTANCE;
 # if CT does not contain matches, ct_map returns uppercase raw values.
+# Derive VISIT
 ds <- sdtm.oak::assign_ct(
   tgt_dat = ds,
   raw_dat = ds_raw,
@@ -123,25 +124,21 @@ ds <- sdtm.oak::assign_ct(
   id_vars = id_vars
 )
 
-ds <- sdtm.oak::assign_ct(
-  tgt_dat = ds,
-  raw_dat = ds_raw,
-  raw_var = "INSTANCE",
-  tgt_var = "VISITNUM",
-  ct_spec = study_ct,
-  ct_clst = "VISITNUM",
-  id_vars = id_vars
-)
-
-# Derive VISIT and VISITNUM for DS domain using lookup table (tv).
+# Derive VISITNUM from lookup table
 ds <- ds %>%
   mutate(
     VISIT = coalesce(VISIT, "DISPOSITION")
   ) %>%
-  left_join(tv, by = "VISIT") %>%
+  select(-any_of("VISITNUM")) %>%
+  left_join(
+    tv %>% select(VISIT, VISITNUM),
+    by = "VISIT"
+  ) %>%
   mutate(
     VISITNUM = coalesce(VISITNUM, 999)
   )
+
+cat("VISITNUM derived successfully\n")
 
 # DSDTC: collection date + time -> ISO8601
 date_fmts <- c("m-d-y", "m/d/y", "d-m-y", "d/m/y", "y-m-d")
@@ -183,16 +180,41 @@ ds <- sdtm.oak::assign_datetime(
 )
 
 # ---- Derive STUDYID, DOMAIN, USUBJID, DSCAT ----------------------------------
+ds <- ds %>%
+  mutate(
+    VISIT = coalesce(VISIT, "DISPOSITION")
+  )
+
+# remove any VISITNUM created earlier
+ds <- ds %>% select(-any_of("VISITNUM"))
+
+# join lookup
+ds <- ds %>%
+  left_join(
+    tv %>% select(VISIT, VISITNUM),
+    by = "VISIT"
+  )
+
+# default value
+ds <- ds %>%
+  mutate(
+    VISITNUM = coalesce(VISITNUM, 999)
+  )
+
+cat("VISITNUM derived successfully\n")
+
+# ---- Derive STUDYID / USUBJID / DOMAIN ----
 
 ds <- ds %>%
-  left_join(id_xwalk, by = c("oak_id", "raw_source", "patient_number")) %>%
+  left_join(
+    id_xwalk,
+    by = c("oak_id", "raw_source")
+  ) %>%
   mutate(
     STUDYID = STUDY,
-    DOMAIN  = "DS",
-    USUBJID = paste0(STUDY, "-", PATNUM),
-    DSCAT   = default_dscat
-  ) %>%
-  select(-STUDY, -PATNUM)
+    USUBJID = paste(STUDY, PATNUM, sep = "-"),
+    DOMAIN = "DS"
+  )
 
 # ---- Derive Study Day (DSSTDY) ------------------------------------------------
 
@@ -205,6 +227,11 @@ ds <- sdtm.oak::derive_study_day(
   merge_key = "USUBJID"
 )
 
+# ---- Derive DSCAT ----
+ds <- ds %>%
+  mutate(
+    DSCAT = default_dscat
+  )
 # ---- Derive Sequence Number (DSSEQ) ------------------------------------------
 
 # Record-level identifiers for sequencing. Adjust ordering variables if needed

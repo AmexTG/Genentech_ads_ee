@@ -1,0 +1,449 @@
+tlf_02 RUN START: 2026-03-23 03:27:37 
+
+
+> # ------------------------------------------------------------------------------
+> # Program:     02_create_visualization.R
+> # Purpose:     Create AE visualizations and Top 10 most frequent adverse events
+> #              with 95% confidence intervals using pharmaverseadam ADAE dataset.
+> #
+> # Author:      Emmanuel Endeshaw
+> # Date created: Mar22, 2026
+> #
+> # Input:       pharmaverseadam::adae
+> #              pharmaverseadam::adsl
+> #
+> # Output:      3_2_1_ae_severity_by_treatment_counts.png
+> #              3_2_2_top10_adverse_events.png
+> #
+> #              AE severity heatmap (counts and proportions)
+> #
+> #              top10_adverse_events.png
+> #              Top 10 AETERM incidence with 95% CI
+> #
+> # Derivations:
+> #              - TRT variable harmonized across datasets
+> #              - Safety population denominators (SAFFL)
+> #              - Event-level AE severity counts (AESEV)
+> #              - Subject-level worst severity derivation
+> #              - Top 10 AETERM by subject incidence
+> #              - Incidence proportion = n / N
+> #              - 95% CI (Clopper-Pearson exact)
+> #              - 95% CI (Wilson method)
+> #
+> # Plots:
+> #              Plot 1: AE severity distribution by treatment
+> #                      - Stacked bar chart
+> #                      - Heatmap (counts)
+> #                      - Heatmap (proportions)
+> #
+> #              Plot 2: Top 10 most frequent adverse events
+> #                      - Incidence rates
+> #                      - 95% confidence intervals
+> #
+> # Population:  Safety population (SAFFL = "Y") when available
+> #
+> # Variables:
+> #              AESEV   - AE Severity
+> #              AETERM  - Preferred Term
+> #              AESOC   - System Organ Class
+> #              TRT     - Treatment group
+> #              SAFFL   - Safety flag
+> #              TRTEMFL - Treatment emergent flag (optional)
+> #
+> # References:
+> #  - pharmaverseadam ADAE dataset
+> #  - FDA TLG guidance for AE summaries
+> #  - ggplot2 visualization standards
+> #  - binom::binom.confint for 95% CI
+> #  - Clopper-Pearson exact confidence intervals
+> # ------------------------------------------------------------------------------
+> 
+> library(pharmaverseadam)
+
+> library(dplyr)
+
+> library(tidyr)
+
+> library(forcats)
+
+> library(stringr)
+
+> library(ggplot2)
+
+> library(scales)
+
+> library(binom)   
+
+> # Load datasets
+> data("adae", package = "pharmaverseadam")
+
+> data("adsl", package = "pharmaverseadam")
+
+> # create TRT variable for pharmaverseadam 
+> make_trt <- function(df) {
++   trt_vars <- intersect(c("TRT","TRTA","TRT01A","ACTARM"), names(df))
++   df %>%
++     mutate(TRT = coalesce(!!!syms(trt_vars)))
++ }
+
+> # Preprocess ADSL for denominators
+> adsl_prep <- adsl %>%
++   make_trt() %>%
++   mutate(
++     TRT = replace_na(TRT, "(Missing TRT)")
++   )
+
+> # Default denominator: Safety population only (typical for AE incidence)
+> adsl_denoms <- adsl_prep %>%
++   filter(is.na(SAFFL) | SAFFL == "Y") %>%
++   distinct(USUBJID, TRT) %>%
++   count(TRT, name = "N") %>%
++   bind_rows(
++     adsl_prep %>%
++       filter(is.na(SAFFL) | SAFFL == "Y") %>%
++       summarise(TRT = "Overall", N = n_distinct(USUBJID))
++   )
+
+> # Preprocess ADAE for event-level summaries and incidence numerators
+> adae_prep <- adae %>%
++   make_trt() %>%
++   mutate(
++     TRT    = replace_na(TRT, "(Missing TRT)"),
++     AESEV  = as.factor(AESEV) %>% fct_na_value_to_level(level = "(Missing AESEV)"),
++     AETERM = replace_na(AETERM, "(Missing AETERM)")
++   )
+
+> # restrict to TEAE and/or SAFFL if present
+> use_teae  <- FALSE
+
+> use_saffl <- FALSE
+
+> adae_filt <- adae_prep %>%
++   { if (use_saffl && "SAFFL" %in% names(.)) filter(., SAFFL == "Y") else . } %>%
++   { if (use_teae  && "TRTEMFL" %in% names(.)) filter(., TRTEMFL == "Y") else . }
+
+> # --- (a1) Event-level counts: AE records by TRT × AESEV (long) ---
+> ae_sev_event_long <- adae_filt %>%
++   count(TRT, AESEV, name = "n_events") %>%
++   complete(TRT, AESEV, fill = list(n_events = 0)) %>%
++   group_by(TRT) %>%
++   mutate(pct_within_trt = n_events / sum(n_events)) %>%
++   ungroup()
+
+> # --- (a2) Event-level counts (wide) ---
+> ae_sev_event_wide <- ae_sev_event_long %>%
++   select(TRT, AESEV, n_events) %>%
++   pivot_wider(names_from = AESEV, values_from = n_events, values_fill = 0)
+
+> # Create subject-level severity label
+> # Prefer ASEV if present, otherwise use AESEV
+> if ("ASEV" %in% names(adae_filt)) {
++   
++   adae_subj_src <- adae_filt %>%
++     mutate(
++       SEV_LABEL = as.character(ASEV),
++       SEV_LABEL = replace_na(SEV_LABEL, "(Missing AESEV)")
++     )
++   
++ } else {
++   
++   adae_subj_src <- adae_filt %>%
++     mutate(
++       SEV_LABEL = as.character(AESEV),
++       SEV_LABEL = replace_na(SEV_LABEL, "(Missing AESEV)")
++     )
++   
++ }
+
+> # Derive worst severity per subject
+> if ("AOCCIFL" %in% names(adae_subj_src)) {
++   
++   adae_subj_max <- adae_subj_src %>%
++     filter(AOCCIFL == "Y") %>%
++     distinct(USUBJID, TRT, SEV_LABEL)
++   
++ } else {
++   
++   sev_levels <- c("MILD", "MODERATE", "SEVERE", "(Missing AESEV)")
++   
++   adae_subj_max <- adae_subj_src %>%
++     mutate(
++       SEV_FCT = factor(
++         toupper(SEV_LABEL),
++         levels = sev_levels,
++         ordered = TRUE
++       )
++     ) %>%
++     group_by(USUBJID, TRT) %>%
++     slice_max(order_by = SEV_FCT, n = 1, with_ties = FALSE) %>%
++     ungroup() %>%
++     transmute(
++       USUBJID,
++       TRT,
++       SEV_LABEL = as.character(SEV_FCT)
++     )
++ }
+
+> # Subject-level counts by TRT × worst severity (long + wide)
+> ae_sev_subj_long <- adae_subj_max %>%
++   count(TRT, SEV_LABEL, name = "n_subjects") %>%
++   complete(TRT, SEV_LABEL, fill = list(n_subjects = 0)) %>%
++   group_by(TRT) %>%
++   mutate(pct_within_trt = n_subjects / sum(n_subjects)) %>%
++   ungroup()
+
+> ae_sev_subj_wide <- ae_sev_subj_long %>%
++   select(TRT, SEV_LABEL, n_subjects) %>%
++   pivot_wider(names_from = SEV_LABEL, values_from = n_subjects, values_fill = 0)
+
+> # Choose which dataset to plot:
+> # ae_sev_event_long  (event-level) OR ae_sev_subj_long (subject-level worst severity)
+> plot_sev <- ae_sev_event_long
+
+> p_sev_bar_counts <- ggplot(plot_sev, aes(x = TRT, y = n_events, fill = AESEV)) +
++   geom_col(width = 0.85, color = "white", linewidth = 0.2) +
++   labs(
++     title = "AE severity distribution by treatment",
++     x = "Treatment",
++     y = "Count",
++     fill = "AE severity"
++   ) +
++   scale_fill_brewer(palette = "Set2", drop = FALSE) +
++   theme_minimal(base_size = 12) +
++   theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+> p_sev_bar_counts
+
+> # Save as PNG
+> ggsave(
++   "3_2_1_ae_severity_by_treatment_counts.png",
++   p_sev_bar_counts,
++   width = 8,
++   height = 5,
++   dpi = 300
++ )
+
+> plot_sev <- ae_sev_event_long
+
+> p_sev_heat_counts <- ggplot(plot_sev, aes(x = TRT, y = AESEV, fill = n_events)) +
++   geom_tile(color = "white", linewidth = 0.3) +
++   geom_text(aes(label = n_events), size = 3) +
++   labs(
++     title = "AE severity distribution by treatment",
++     subtitle = "Heatmap (counts)",
++     x = "Treatment",
++     y = "AE severity",
++     fill = "Count"
++   ) +
++   scale_fill_distiller(palette = "YlOrRd", direction = 1) +
++   theme_minimal(base_size = 12) +
++   theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+> p_sev_heat_prop <- ggplot(plot_sev, aes(x = TRT, y = AESEV, fill = pct_within_trt)) +
++   geom_tile(color = "white", linewidth = 0.3) +
++   geom_text(aes(label = scales::percent(pct_within_trt, accuracy = 0.1)), size = 3) +
++   labs(
++     title = "AE severity distribution by treatment",
++     subtitle = "Heatmap (within-treatment proportions)",
++     x = "Treatment",
++     y = "AE severity",
++     fill = "Percent"
++   ) +
++   scale_fill_distiller(palette = "Blues", direction = 1, labels = label_percent(accuracy = 1)) +
++   theme_minimal(base_size = 12) +
++   theme(axis.text.x = element_text(angle = 30, hjust = 1))
+
+> p_sev_heat_counts
+
+> p_sev_heat_prop
+
+> # --- Prep ADAE and ADSL for incidence work ---
+> adsl_prep <- adsl %>%
++   make_trt() %>%
++   mutate(TRT = replace_na(TRT, "(Missing TRT)"))
+
+> # ADAE: label missing AETERM and re-use TRT already created above
+> adae_inc <- adae %>%
++   make_trt() %>%
++   mutate(
++     TRT    = replace_na(TRT, "(Missing TRT)"),
++     AETERM = replace_na(AETERM, "(Missing AETERM)")
++   )
+
+> # Optional restriction examples (toggle as needed)
+> use_teae  <- FALSE
+
+> use_saffl <- TRUE
+
+> if (use_teae && "TRTEMFL" %in% names(adae_inc)) {
++   adae_inc <- adae_inc %>% filter(TRTEMFL == "Y")
++ }
+
+> if (use_saffl && "SAFFL" %in% names(adae_inc)) {
++   adae_inc <- adae_inc %>% filter(SAFFL == "Y")
++ }
+
+> # --- Denominators: prefer ADSL SAFFL==Y if possible, else fallback to ADAE ---
+> get_denoms <- function(adsl_df, adae_df) {
++   
++   if (exists("adsl_df") && is.data.frame(adsl_df) && "USUBJID" %in% names(adsl_df)) {
++     
++     if ("SAFFL" %in% names(adsl_df)) {
++       adsl_use <- adsl_df %>% filter(SAFFL == "Y")
++     } else {
++       adsl_use <- adsl_df
++     }
++     
++     den_trt <- adsl_use %>%
++       distinct(USUBJID, TRT) %>%
++       count(TRT, name = "N")
++     
++     den_all <- adsl_use %>%
++       summarise(TRT = "Overall", N = n_distinct(USUBJID))
++     
++     return(bind_rows(den_trt, den_all))
++   }
++   
++   # Fallback: derive denominators from ADAE
++   den_trt <- adae_df %>%
++     distinct(USUBJID, TRT) %>%
++     count(TRT, name = "N")
++   
++   den_all <- adae_df %>%
++     summarise(TRT = "Overall", N = n_distinct(USUBJID))
++   
++   bind_rows(den_trt, den_all)
++ }
+
+> denoms <- get_denoms(adsl_prep, adae_inc)
+
+> # --- Top 10 terms by OVERALL subject count ---
+> top10_terms <- adae_inc %>%
++   distinct(USUBJID, AETERM) %>%
++   count(AETERM, name = "n_subj") %>%
++   arrange(desc(n_subj), AETERM) %>%
++   slice_head(n = 10) %>%
++   pull(AETERM)
+
+> # --- Incidence overall (top10) ---
+> inc_overall <- adae_inc %>%
++   filter(AETERM %in% top10_terms) %>%
++   distinct(USUBJID, AETERM) %>%
++   count(AETERM, name = "n_subj") %>%
++   mutate(TRT = "Overall") %>%
++   left_join(denoms, by = "TRT") %>%
++   mutate(prop = n_subj / N)
+
+> # --- Incidence by TRT (top10 terms fixed by overall selection) ---
+> inc_by_trt <- adae_inc %>%
++   filter(AETERM %in% top10_terms) %>%
++   distinct(USUBJID, TRT, AETERM) %>%
++   count(TRT, AETERM, name = "n_subj") %>%
++   left_join(denoms %>% filter(TRT != "Overall"), by = "TRT") %>%
++   mutate(prop = n_subj / N)
+
+> # Combine and set plotting order (top term at top)
+> inc_all <- bind_rows(inc_overall, inc_by_trt) %>%
++   mutate(AETERM = factor(AETERM, levels = rev(top10_terms)))
+
+> # --- Compute 95% CIs: exact and Wilson via binom.confint ---
+> add_cis <- function(df, conf.level = 0.95) {
++   
++   df <- df %>% mutate(row_id = row_number())
++   
++   ci_exact <- binom.confint(df$n_subj, df$N, conf.level = conf.level, methods = "exact") %>%
++     as_tibble() %>%
++     transmute(row_id = row_number(),
++               ci_low_exact = lower,
++               ci_high_exact = upper)
++   
++   ci_wilson <- binom.confint(df$n_subj, df$N, conf.level = conf.level, methods = "wilson") %>%
++     as_tibble() %>%
++     transmute(row_id = row_number(),
++               ci_low_wilson = lower,
++               ci_high_wilson = upper)
++   
++   df %>%
++     left_join(ci_exact, by = "row_id") %>%
++     left_join(ci_wilson, by = "row_id") %>%
++     select(-row_id)
++ }
+
+> inc_all_ci <- add_cis(inc_all) %>%
++   mutate(AETERM_wrapped = stringr::str_wrap(as.character(AETERM), width = 35))
+
+> # --- Optional: validate exact CI with stats::binom.test() (row-wise) ---
+> # (Useful for sanity-checking; slower for large tables)
+> validate_exact <- FALSE
+
+> if (validate_exact) {
++   library(purrr)
++   inc_all_ci <- inc_all_ci %>%
++     mutate(
++       bt = map2(n_subj, N, ~ stats::binom.test(.x, .y, conf.level = 0.95)$conf.int),
++       ci_low_exact_bt = map_dbl(bt, 1),
++       ci_high_exact_bt = map_dbl(bt, 2)
++     ) %>%
++     select(-bt)
++ }
+
+> # --- (b) Requested table: top10 AETERM with counts, N, prop, and both CI methods ---
+> top10_table_b <- inc_all_ci %>%
++   select(TRT, AETERM, n_subj, N, prop,
++          ci_low_exact, ci_high_exact,
++          ci_low_wilson, ci_high_wilson) %>%
++   arrange(TRT, AETERM)
+
+> # --- Plots: overall and by treatment (horizontal error bars) ---
+> ci_method <- "exact"
+
+> plot_df <- inc_all_ci %>%
++   filter(TRT == "Overall") %>%
++   mutate(
++     ci_low  = if (ci_method == "wilson") ci_low_wilson else ci_low_exact,
++     ci_high = if (ci_method == "wilson") ci_high_wilson else ci_high_exact,
++     AETERM_wrapped = reorder(AETERM_wrapped, prop)
++   )
+
+> p_top10 <- ggplot(
++   plot_df,
++   aes(
++     y = AETERM_wrapped,
++     x = prop,
++     xmin = ci_low,
++     xmax = ci_high
++   )
++ ) +
++   geom_errorbar(
++     orientation = "y",
++     width = 0.25,
++     linewidth = 0.6
++   ) +
++   geom_point(size = 2.5) +
++   scale_x_continuous(labels = scales::label_percent(accuracy = 1)) +
++   labs(
++     title = "Top 10 Most Frequent Adverse Events",
++     subtitle = paste0(
++       "n = ", unique(plot_df$N),
++       " subjects; 95% Clopper-Pearson CIs"
++     ),
++     x = "Percentage of Patients (%)",
++     y = NULL
++   ) +
++   theme_minimal(base_size = 12)
+
+> p_top10
+
+> # Save to PNG
+> ggsave(
++   "3_2_2_top10_adverse_events.png",
++   p_top10,
++   width = 10,
++   height = 6,
++   dpi = 300
++ )
+
+Rows in tlf_02: 850 
+Columns in tlf_02: 13 
+
+tlf_02 END: 2026-03-23 03:27:40 

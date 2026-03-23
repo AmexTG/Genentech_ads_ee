@@ -13,7 +13,7 @@
 #   pharmaversesdtm::vs   - Vital Signs
 #   pharmaversesdtm::ae   - Adverse Events
 #
-# Output:
+# Output adsl_listing.html:
 #   adsl with key variables:
 #   STUDYID, USUBJID, TRT01P, TRT01PN, TRTSDT, TRTEDT,
 #   SAFFL, ITTFL, AGE, SEX, RACE, ARM, ARMCD
@@ -258,10 +258,9 @@ adsl <- adsl %>%
 write_xpt(adsl, "adsl.xpt")
 
 
-#html output
+# HTML listing
 adsl %>%
-  head(50) %>%
+  head(100) %>%
   gt() %>%
   gtsave("adsl_listing.html")
-
 

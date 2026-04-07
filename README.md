@@ -26,7 +26,7 @@ programming conventions and CDISC-aligned structures.
   Script:
   * question_2_adsl/create_adsl.R
 
-## 🟦 Question 3 — AE Summary Table (TLG)
+## 🟦 Question 3.1 — AE Summary Table (TLG)
   Treatment-emergent adverse events summary
   Rows:
   * AETERM or AESOC
@@ -40,7 +40,7 @@ programming conventions and CDISC-aligned structures.
   * question_3_tlg/01_create_ae_summary_table.R 
   ---
   
-## 🟦 Question 3 — Visualizations
+## 🟦 Question 3.2 — Visualizations
   Plot 1:
   * AE severity distribution by treatment
   Plot 2:

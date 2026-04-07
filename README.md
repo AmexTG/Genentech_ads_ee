@@ -6,7 +6,7 @@ This repository contains solutions for the Analytical Data Science Programmer
 coding assessment using the Pharmaverse ecosystem. The outputs follow clinical
 programming conventions and CDISC-aligned structures.
 ---
-## Question 1 — SDTM Creation
+## 🟦 Question 1 — SDTM Creation
   Input:
   * pharmaverseraw::ds_raw
   Output:
@@ -16,8 +16,7 @@ programming conventions and CDISC-aligned structures.
   Script:
   * 01_create_ds_domain.R
 ---
-
-Question 2 — ADSL Creation
+## 🟦 Question 2 — ADSL Creation
   Input:
   * pharmaversesdtm domains (DM, VS, EX, DS, AE)
   Output:
@@ -27,7 +26,7 @@ Question 2 — ADSL Creation
   Script:
   * question_2_adsl/create_adsl.R
 
-## Question 3 — AE Summary Table (TLG)
+## 🟦 Question 3 — AE Summary Table (TLG)
   Treatment-emergent adverse events summary
   Rows:
   * AETERM or AESOC
@@ -41,7 +40,7 @@ Question 2 — ADSL Creation
   * question_3_tlg/01_create_ae_summary_table.R 
   ---
   
-## Question 3 — Visualizations
+## 🟦 Question 3 — Visualizations
   Plot 1:
   * AE severity distribution by treatment
   Plot 2:
@@ -54,7 +53,7 @@ Question 2 — ADSL Creation
   * question_3_tlg/02_create_visualizations.R
 ---
 
-## Question 4 — GenAI Clinical Assistant
+## 🟦 Question 4 — GenAI Clinical Assistant
   Natural language queries mapped to ADAE dataset variables.
   Examples:
   * "Show severe events" → AESEV
